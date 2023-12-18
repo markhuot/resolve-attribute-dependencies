@@ -42,3 +42,30 @@ Route::post('/posts', function (
     return redirect()->back();
 });
 ```
+
+### Type Coercion
+
+Because PHP is duck typed (it may not be a string, but if it looks like a string PHP will coerce it in to a string) you
+get some built-in type coercion and safety. E.g.,
+
+```php
+Route::post('/posts', function (
+    # will force "10", "foo", and "true" in to strings. Any non-string will throw a TypeError. For example, passing
+    # `?title[]=foo` will error.
+    #[FromRequest] string $title,
+    
+    # will force "10" and "3.5" in to integers 10 and 3. Any value that can't be coerced in to an integer will throw
+    # a TypeError such as `?count=true`.
+    #[FromRequest] int $count,
+) {})
+```
+
+When implicit coercion is not possible you can nudge the type along with an explict Cast. E.g.,
+
+```php
+Route::post('/posts', function (
+    #[FromRequest, Casts\CarbonImmutable(format: 'Y-m-d', tz: 'America/New_York')] $createdAt,
+) {})
+```
+
+Default casts are already present for `\DateTimeInterface`, `Carbon`, `CarbonImmutable` and `Collection`.

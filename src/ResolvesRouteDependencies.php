@@ -3,6 +3,8 @@
 namespace markhuot\attrdeps;
 
 use Illuminate\Support\Facades\Validator;
+use Illuminate\Support\Reflector;
+use markhuot\attrdeps\Casts\Cast;
 use markhuot\attrdeps\Resolvers\FromAuth;
 use markhuot\attrdeps\Resolvers\FromRequest;
 use ReflectionFunctionAbstract;
@@ -14,12 +16,7 @@ trait ResolvesRouteDependencies
     public function resolveMethodDependencies(array $parameters, ReflectionFunctionAbstract $reflector)
     {
         $parameters = parent::resolveMethodDependencies($parameters, $reflector);
-
-        $rules = collect($reflector->getParameters())
-            ->mapWithKeys(fn (ReflectionParameter $parameter, $index) => [
-                $parameter->getName() => $this->getValidationRules($parameter)
-            ])
-            ->toArray();
+        $rules = $this->resolveMethodValidationRules($reflector);
 
         throw_if(count($parameters) !== count($rules), new \ErrorException(
             message: 'Parameter mismatch. Did you forget to add a #[FromRequest] attribute to a parameter?',
@@ -27,6 +24,56 @@ trait ResolvesRouteDependencies
             line: $reflector->getStartLine(),
         ));
 
+        $this->validateMethodDependencies($parameters, $rules);
+
+        return $parameters;
+    }
+
+    protected function transformDependency(ReflectionParameter $parameter, $parameters, $skippableValue)
+    {
+        if ($parameter->getAttributes(FromAuth::class)) {
+            $dependency = auth()->user();
+        }
+
+        else if ($attributes = $parameter->getAttributes(FromRequest::class)) {
+            $key = $attributes[0]->getArguments()['key'] ?? $parameter->getName();
+            $dependency = request()->input($key);
+        }
+
+        else {
+            $dependency = parent::transformDependency($parameter, $parameters, $skippableValue);
+        }
+
+
+        $dependency = collect($parameter->getAttributes())
+            ->map(fn (\ReflectionAttribute $attribute) => $attribute->newInstance())
+            ->filter(fn ($attribute) => $attribute instanceof Cast)
+            ->whenEmpty(function ($collection) use ($parameter) {
+                $desiredType = Reflector::getParameterClassName($parameter);
+                if ($desiredType) {
+                    $caster = app(CastManager::class)->getCastFor($desiredType);
+                    if ($caster) {
+                        $collection->push(new $caster);
+                    }
+                }
+                return $collection;
+            })
+            ->reduce(fn ($carry, $caster) => $caster($carry), $dependency);
+
+        return $dependency;
+    }
+
+    protected function resolveMethodValidationRules(ReflectionFunctionAbstract $reflector)
+    {
+        return collect($reflector->getParameters())
+            ->mapWithKeys(fn (ReflectionParameter $parameter, $index) => [
+                $parameter->getName() => $this->getValidationRulesForParameter($parameter)
+            ])
+            ->toArray();
+    }
+
+    protected function validateMethodDependencies($parameters, $rules)
+    {
         $keyedParameters = collect($rules)->keys()
             ->combine(array_values($parameters))
             ->all();
@@ -38,25 +85,9 @@ trait ResolvesRouteDependencies
         else {
             $validator->validate();
         }
-
-        return $parameters;
     }
 
-    protected function transformDependency(ReflectionParameter $parameter, $parameters, $skippableValue)
-    {
-        if ($parameter->getAttributes(FromAuth::class)) {
-            return auth()->user();
-        }
-
-        if ($attributes = $parameter->getAttributes(FromRequest::class)) {
-            $key = $attributes[0]->getArguments()['key'] ?? $parameter->getName();
-            return request()->input($key);
-        }
-
-        return parent::transformDependency($parameter, $parameters, $skippableValue);
-    }
-
-    protected function getValidationRules(ReflectionParameter $parameter)
+    protected function getValidationRulesForParameter(ReflectionParameter $parameter)
     {
         $rules = [];
 
