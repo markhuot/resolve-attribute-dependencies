@@ -1,0 +1,26 @@
+{
+    "name": "markhuot/resolve-attribute-dependencies",
+    "type": "laravel-package",
+    "license": "MIT",
+    "autoload": {
+        "psr-4": {
+            "markhuot\\attrdeps\\": "src/"
+        }
+    },
+    "authors": [
+        {
+            "name": "markhuot",
+            "email": "mark@markhuot.com"
+        }
+    ],
+    "require": {
+        "laravel/framework": "^10.0"
+    },
+    "extra": {
+        "laravel": {
+            "providers": [
+                "markhuot\\attrdeps\\ServiceProvider"
+            ]
+        }
+    }
+}
